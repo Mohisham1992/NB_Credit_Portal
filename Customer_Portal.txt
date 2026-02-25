@@ -1,0 +1,807 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  LayoutDashboard, 
+  FileText, 
+  CheckCircle, 
+  LogOut, 
+  PlusCircle, 
+  Search, 
+  UploadCloud, 
+  AlertCircle,
+  ChevronRight,
+  Download,
+  Menu,
+  X,
+  Camera,
+  Receipt,
+  Filter
+} from 'lucide-react';
+
+// --- MOCK DATA ---
+
+const MOCK_USER = {
+  username: "nb_retail_partner",
+  password: "password123",
+  name: "Sports World LLC",
+  customerCode: "CUST-99281"
+};
+
+// Map of Invoice ID -> Line Items (for the CN Logic)
+const MOCK_INVOICE_LINES = {
+  "INV-2024-001": [
+    { sku: "NB-574-GRY-09", name: "574 Core Grey - Size 9", price: 85.00, qty: 50 },
+    { sku: "NB-327-BLU-10", name: "327 Retro Blue - Size 10", price: 90.00, qty: 30 },
+    { sku: "NB-990-BLK-11", name: "990v6 Black - Size 11", price: 199.00, qty: 20 },
+  ],
+  "INV-2024-002": [
+    { sku: "NB-1080-RED-08", name: "Fresh Foam 1080 Red - Size 8", price: 160.00, qty: 100 },
+  ],
+  "INV-2023-999": [
+    { sku: "NB-2002-SND-09", name: "2002R Sand - Size 9", price: 140.00, qty: 10 },
+  ]
+};
+
+// List of Invoices Metadata (for the Invoice List View)
+const MOCK_POSTED_INVOICES = [
+  { id: "INV-2024-002", date: "2024-02-15", amount: 16000.00, status: "Paid", dueDate: "2024-03-15" },
+  { id: "INV-2024-001", date: "2024-02-01", amount: 10930.00, status: "Paid", dueDate: "2024-03-01" },
+  { id: "INV-2023-999", date: "2023-12-20", amount: 1400.00, status: "Overdue", dueDate: "2024-01-20" },
+  { id: "INV-2023-850", date: "2023-11-05", amount: 1200.00, status: "Paid", dueDate: "2023-12-05" },
+];
+
+const INITIAL_REQUESTS = [
+  {
+    id: "CN-REQ-8821",
+    date: "2024-02-08",
+    invoice: "INV-2023-999",
+    amount: 450.00,
+    status: "Ops Review", // Customer sees this
+    internalStatus: "Pending Manager", // Customer NEVER sees this
+    reason: "Shortage",
+    publicComments: "We are reviewing your shortage claim.",
+    internalComments: "Warehouse CCTV confirms only 45 boxes shipped.", // Customer NEVER sees this
+  },
+  {
+    id: "CN-REQ-8805",
+    date: "2024-01-15",
+    invoice: "INV-2023-850",
+    amount: 1200.00,
+    status: "Rejected",
+    reason: "Defect",
+    publicComments: "Photos provided do not show manufacturing defect.",
+    internalComments: "Clear wear and tear, not a factory issue.",
+  }
+];
+
+const POSTED_CNS = [
+  {
+    cnNumber: "CN-9000155",
+    datePosted: "2024-02-01",
+    originalInvoice: "INV-2023-700",
+    totalAmount: 2500.00,
+    downloadLink: "#"
+  },
+  {
+    cnNumber: "CN-9000142",
+    datePosted: "2024-01-20",
+    originalInvoice: "INV-2023-650",
+    totalAmount: 199.50,
+    downloadLink: "#"
+  }
+];
+
+// --- COMPONENTS ---
+
+const Branding = () => (
+  <div className="flex items-center gap-2">
+    <div className="bg-red-600 text-white font-bold p-2 rounded text-xl italic tracking-tighter">
+      NB
+    </div>
+    <span className="font-semibold text-gray-800 text-lg hidden md:block">Credit Portal</span>
+  </div>
+);
+
+// --- MAIN APP COMPONENT ---
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [prefillInvoice, setPrefillInvoice] = useState(null);
+  
+  // Login State
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+
+  // App Data State
+  const [requests, setRequests] = useState(INITIAL_REQUESTS);
+
+  // --- ACTIONS ---
+  
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (loginForm.username === MOCK_USER.username && loginForm.password === MOCK_USER.password) {
+      setUser(MOCK_USER);
+      setLoginError('');
+    } else {
+      setLoginError('Invalid credentials. Try: nb_retail_partner / password123');
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setActiveTab('dashboard');
+    setLoginForm({ username: '', password: '' });
+  };
+
+  const handleNewSubmission = (newRequest) => {
+    setRequests([newRequest, ...requests]);
+    setActiveTab('track');
+    setPrefillInvoice(null);
+  };
+
+  const handleStartCNFromInvoice = (invoiceId) => {
+    setPrefillInvoice(invoiceId);
+    setActiveTab('submit');
+  };
+
+  // --- RENDER ---
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 font-sans">
+        <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md border-t-4 border-red-600">
+          <div className="flex justify-center mb-6">
+            <div className="bg-red-600 text-white font-bold p-3 rounded text-3xl italic tracking-tighter">
+              NB
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-center text-gray-800 mb-2">Partner Login</h2>
+          <p className="text-center text-gray-500 mb-6">Secure Credit Note Portal</p>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+              <input 
+                type="text" 
+                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition"
+                placeholder="Enter your username"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({...loginForm, username: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input 
+                type="password" 
+                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition"
+                placeholder="Enter your password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+              />
+            </div>
+            
+            {loginError && (
+              <div className="bg-red-50 text-red-600 text-sm p-3 rounded flex items-center gap-2">
+                <AlertCircle size={16} />
+                {loginError}
+              </div>
+            )}
+
+            <button 
+              type="submit"
+              className="w-full bg-gray-900 hover:bg-black text-white font-bold py-3 rounded-lg transition duration-200"
+            >
+              Secure Login
+            </button>
+          </form>
+          <div className="mt-6 text-center text-xs text-gray-400">
+            Powered by Microsoft Power Pages
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-slate-800">
+      {/* Top Navigation */}
+      <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center cursor-pointer" onClick={() => setActiveTab('dashboard')}>
+              <Branding />
+            </div>
+            
+            <div className="hidden md:flex items-center space-x-4 lg:space-x-8">
+              <NavBtn active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={LayoutDashboard} label="Dashboard" />
+              <NavBtn active={activeTab === 'invoices'} onClick={() => setActiveTab('invoices')} icon={Receipt} label="My Invoices" />
+              <NavBtn active={activeTab === 'submit'} onClick={() => setActiveTab('submit')} icon={PlusCircle} label="Submit Request" />
+              <NavBtn active={activeTab === 'track'} onClick={() => setActiveTab('track')} icon={FileText} label="Track Requests" />
+              <NavBtn active={activeTab === 'posted'} onClick={() => setActiveTab('posted')} icon={CheckCircle} label="Posted CNs" />
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="text-right hidden sm:block">
+                <div className="text-sm font-bold text-gray-900">{user.name}</div>
+                <div className="text-xs text-gray-500">{user.customerCode}</div>
+              </div>
+              <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-600 transition">
+                <LogOut size={20} />
+              </button>
+            </div>
+          </div>
+        </div>
+        {/* Mobile Nav (Simplified) */}
+        <div className="md:hidden flex justify-around py-3 border-t text-xs overflow-x-auto">
+          <MobileNavBtn active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={LayoutDashboard} label="Home" />
+          <MobileNavBtn active={activeTab === 'invoices'} onClick={() => setActiveTab('invoices')} icon={Receipt} label="Invoices" />
+          <MobileNavBtn active={activeTab === 'submit'} onClick={() => setActiveTab('submit')} icon={PlusCircle} label="Submit" />
+          <MobileNavBtn active={activeTab === 'track'} onClick={() => setActiveTab('track')} icon={FileText} label="Track" />
+          <MobileNavBtn active={activeTab === 'posted'} onClick={() => setActiveTab('posted')} icon={CheckCircle} label="Posted" />
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 lg:p-8">
+        {activeTab === 'dashboard' && <DashboardView setActiveTab={setActiveTab} requests={requests} />}
+        {activeTab === 'invoices' && <InvoicesView onStartCN={handleStartCNFromInvoice} />}
+        {activeTab === 'submit' && <SubmitCNView onCancel={() => setActiveTab('dashboard')} onSubmit={handleNewSubmission} user={user} prefillInvoice={prefillInvoice} />}
+        {activeTab === 'track' && <TrackRequestsView requests={requests} />}
+        {activeTab === 'posted' && <PostedCNView />}
+      </main>
+    </div>
+  );
+}
+
+// --- SUB-COMPONENTS ---
+
+const NavBtn = ({ active, onClick, icon: Icon, label }) => (
+  <button 
+    onClick={onClick}
+    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition duration-200 whitespace-nowrap ${active ? 'text-red-600 bg-red-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}
+  >
+    <Icon size={18} />
+    {label}
+  </button>
+);
+
+const MobileNavBtn = ({ active, onClick, icon: Icon, label }) => (
+  <button 
+    onClick={onClick}
+    className={`flex flex-col items-center gap-1 min-w-[60px] ${active ? 'text-red-600' : 'text-gray-500'}`}
+  >
+    <Icon size={20} />
+    <span>{label}</span>
+  </button>
+);
+
+// --- VIEWS ---
+
+const DashboardView = ({ setActiveTab, requests }) => {
+  const pendingCount = requests.filter(r => !['Posted', 'Rejected'].includes(r.status)).length;
+  
+  return (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-8 text-white shadow-lg">
+        <h1 className="text-3xl font-bold mb-2">Welcome back, Sports World.</h1>
+        <p className="text-gray-300 mb-6">Manage your credit notes securely and efficiently.</p>
+        <div className="flex gap-4">
+          <button 
+            onClick={() => setActiveTab('submit')}
+            className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold shadow-md transition flex items-center gap-2"
+          >
+            <PlusCircle size={20} />
+            Create New Request
+          </button>
+          <button 
+            onClick={() => setActiveTab('invoices')}
+            className="bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg font-semibold shadow-md transition flex items-center gap-2 backdrop-blur-sm"
+          >
+            <Receipt size={20} />
+            View Invoices
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-blue-50 p-3 rounded-lg text-blue-600"><FileText /></div>
+            <span className="text-2xl font-bold text-gray-900">{pendingCount}</span>
+          </div>
+          <h3 className="font-semibold text-gray-700">In Progress</h3>
+          <p className="text-sm text-gray-500">Requests under review</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-green-50 p-3 rounded-lg text-green-600"><CheckCircle /></div>
+            <span className="text-2xl font-bold text-gray-900">{POSTED_CNS.length}</span>
+          </div>
+          <h3 className="font-semibold text-gray-700">Posted This Month</h3>
+          <p className="text-sm text-gray-500">Available for download</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-purple-50 p-3 rounded-lg text-purple-600"><AlertCircle /></div>
+            <span className="text-2xl font-bold text-gray-900">0</span>
+          </div>
+          <h3 className="font-semibold text-gray-700">Action Required</h3>
+          <p className="text-sm text-gray-500">Returned requests</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const InvoicesView = ({ onStartCN }) => {
+  const [filter, setFilter] = useState('');
+  
+  const filteredInvoices = MOCK_POSTED_INVOICES.filter(inv => 
+    inv.id.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="p-6 border-b border-gray-100">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">My Invoices</h2>
+            <p className="text-sm text-gray-500 mt-1">View, download, or raise claims against your invoices.</p>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Filter by Invoice #..." 
+              className="pl-10 pr-4 py-2 border rounded-lg text-sm w-full md:w-64 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+      
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm text-gray-600">
+          <thead className="bg-gray-50 text-gray-700 uppercase font-semibold text-xs">
+            <tr>
+              <th className="px-6 py-4">Invoice #</th>
+              <th className="px-6 py-4">Date</th>
+              <th className="px-6 py-4">Due Date</th>
+              <th className="px-6 py-4 text-right">Amount</th>
+              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4 text-center">Downloads</th>
+              <th className="px-6 py-4 text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {filteredInvoices.map((inv) => (
+              <tr key={inv.id} className="hover:bg-gray-50 transition">
+                <td className="px-6 py-4 font-medium text-gray-900">{inv.id}</td>
+                <td className="px-6 py-4">{inv.date}</td>
+                <td className="px-6 py-4">{inv.dueDate}</td>
+                <td className="px-6 py-4 text-right font-medium text-gray-900">${inv.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${inv.status === 'Paid' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
+                    {inv.status}
+                  </span>
+                </td>
+                <td className="px-6 py-4">
+                   <div className="flex justify-center gap-2">
+                     <button className="text-gray-500 hover:text-red-600 p-1" title="Download PDF"><FileText size={18} /></button>
+                     <button className="text-gray-500 hover:text-green-600 p-1" title="Download Excel"><Download size={18} /></button>
+                   </div>
+                </td>
+                <td className="px-6 py-4 text-center">
+                  <button 
+                    onClick={() => onStartCN(inv.id)}
+                    className="text-xs bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg font-medium transition"
+                  >
+                    Request CN
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {filteredInvoices.length === 0 && (
+              <tr>
+                <td colSpan="7" className="px-6 py-8 text-center text-gray-400 italic">
+                  No invoices found matching your filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const SubmitCNView = ({ onCancel, onSubmit, user, prefillInvoice }) => {
+  const [step, setStep] = useState(1);
+  const [invoiceNum, setInvoiceNum] = useState('');
+  const [invoiceLines, setInvoiceLines] = useState(null);
+  const [selectedLines, setSelectedLines] = useState({}); 
+
+  // Effect to handle pre-filled invoice from "My Invoices" tab
+  useEffect(() => {
+    if (prefillInvoice) {
+      setInvoiceNum(prefillInvoice);
+      if (MOCK_INVOICE_LINES[prefillInvoice]) {
+        setInvoiceLines(MOCK_INVOICE_LINES[prefillInvoice]);
+        setStep(2);
+      }
+    }
+  }, [prefillInvoice]);
+  
+  // Helpers
+  const handleSearchInvoice = () => {
+    if (MOCK_INVOICE_LINES[invoiceNum]) {
+      setInvoiceLines(MOCK_INVOICE_LINES[invoiceNum]);
+      setStep(2);
+    } else {
+      alert("Invoice not found for claims. Try 'INV-2024-001' or 'INV-2024-002'");
+    }
+  };
+
+  const handleLineChange = (sku, field, value) => {
+    setSelectedLines(prev => ({
+      ...prev,
+      [sku]: {
+        ...prev[sku],
+        [field]: value,
+        ...(field === 'reason' ? { 
+          qty: '', 
+          photo: false, 
+          correctPrice: '', 
+          excessAccept: false 
+        } : {})
+      }
+    }));
+  };
+
+  const calculateTotal = () => {
+    let total = 0;
+    Object.keys(selectedLines).forEach(sku => {
+      const line = selectedLines[sku];
+      const origLine = invoiceLines.find(i => i.sku === sku);
+      
+      if (!line.reason) return;
+
+      if (line.reason === 'Price Correction') {
+        if (line.correctPrice) {
+          const diff = Math.abs(origLine.price - parseFloat(line.correctPrice));
+          total += diff * (line.qty || origLine.qty); 
+        }
+      } else {
+        if (line.qty) {
+          total += parseFloat(line.qty) * origLine.price;
+        }
+      }
+    });
+    return total.toFixed(2);
+  };
+
+  const handleSubmit = () => {
+    const newReq = {
+      id: `CN-REQ-${Math.floor(Math.random() * 10000)}`,
+      date: new Date().toISOString().split('T')[0],
+      invoice: invoiceNum,
+      amount: calculateTotal(),
+      status: "New",
+      internalStatus: "Ops Review",
+      reason: "Mixed",
+      publicComments: "Request submitted via portal.",
+      internalComments: "", 
+    };
+    onSubmit(newReq);
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* Progress Bar */}
+      <div className="bg-gray-50 border-b border-gray-200 p-4 flex items-center justify-between">
+        <h2 className="font-bold text-gray-700">New Credit Note Request</h2>
+        <div className="flex items-center gap-2 text-sm">
+          <span className={`px-2 py-1 rounded ${step === 1 ? 'bg-red-600 text-white' : 'bg-gray-200'}`}>1. Invoice</span>
+          <ChevronRight size={16} className="text-gray-400" />
+          <span className={`px-2 py-1 rounded ${step === 2 ? 'bg-red-600 text-white' : 'bg-gray-200'}`}>2. Details</span>
+          <ChevronRight size={16} className="text-gray-400" />
+          <span className={`px-2 py-1 rounded ${step === 3 ? 'bg-red-600 text-white' : 'bg-gray-200'}`}>3. Review</span>
+        </div>
+      </div>
+
+      <div className="p-6">
+        {step === 1 && (
+          <div className="max-w-xl mx-auto text-center py-10">
+            <h3 className="text-lg font-semibold mb-4">Find Invoice</h3>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                className="flex-1 border p-3 rounded-lg"
+                placeholder="Enter Invoice # (e.g. INV-2024-001)"
+                value={invoiceNum}
+                onChange={(e) => setInvoiceNum(e.target.value)}
+              />
+              <button 
+                onClick={handleSearchInvoice}
+                className="bg-gray-900 text-white px-6 rounded-lg font-medium hover:bg-black transition"
+              >
+                Search
+              </button>
+            </div>
+            <p className="mt-4 text-sm text-gray-500 text-left bg-blue-50 p-3 rounded">
+              <span className="font-bold">Note:</span> Only invoices from the last 90 days are eligible for online claims.
+            </p>
+          </div>
+        )}
+
+        {step === 2 && invoiceLines && (
+          <div>
+             <div className="flex justify-between items-end mb-4">
+                <div>
+                  <h3 className="font-bold text-lg">Select Items & Reasons</h3>
+                  <p className="text-sm text-gray-500">Invoice: {invoiceNum}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm text-gray-500">Est. Credit:</span>
+                  <div className="text-2xl font-bold text-red-600">${calculateTotal()}</div>
+                </div>
+             </div>
+
+             <div className="space-y-4">
+               {invoiceLines.map((line) => {
+                 const selected = selectedLines[line.sku] || {};
+                 const isActive = !!selected.reason;
+
+                 return (
+                   <div key={line.sku} className={`border rounded-lg p-4 transition ${isActive ? 'border-red-500 bg-red-50/10 shadow-sm' : 'border-gray-200'}`}>
+                     <div className="flex justify-between items-start mb-3">
+                       <div>
+                         <div className="font-bold text-gray-800">{line.name}</div>
+                         <div className="text-xs text-gray-500">SKU: {line.sku} | Inv Price: ${line.price.toFixed(2)} | Inv Qty: {line.qty}</div>
+                       </div>
+                       <select 
+                        className="border p-2 rounded text-sm bg-white"
+                        value={selected.reason || ''}
+                        onChange={(e) => handleLineChange(line.sku, 'reason', e.target.value)}
+                       >
+                         <option value="">-- Select Action --</option>
+                         <option value="Shortage">Shortage</option>
+                         <option value="Defect">Defect</option>
+                         <option value="Price Correction">Price Correction</option>
+                         <option value="Excess">Excess (Not Ordered)</option>
+                       </select>
+                     </div>
+
+                     {/* DYNAMIC FORM FIELDS BASED ON REASON */}
+                     {isActive && (
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-3 rounded border border-gray-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                         
+                         {/* QUANTITY FIELD */}
+                         <div>
+                           <label className="block text-xs font-bold text-gray-600 mb-1">
+                             {selected.reason === 'Excess' ? 'Excess Qty' : 'Claim Qty'}
+                           </label>
+                           <input 
+                              type="number" 
+                              className="w-full border p-2 rounded text-sm"
+                              placeholder={`Max ${line.qty}`}
+                              max={line.qty}
+                              value={selected.qty || ''}
+                              onChange={(e) => handleLineChange(line.sku, 'qty', e.target.value)}
+                           />
+                         </div>
+
+                         {/* DEFECT LOGIC */}
+                         {selected.reason === 'Defect' && (
+                           <div>
+                             <label className="block text-xs font-bold text-gray-600 mb-1">Proof of Defect</label>
+                             <button 
+                              className={`w-full border-2 border-dashed p-2 rounded text-sm flex items-center justify-center gap-2 ${selected.photo ? 'border-green-500 text-green-600 bg-green-50' : 'border-gray-300 text-gray-400 hover:border-gray-400'}`}
+                              onClick={() => handleLineChange(line.sku, 'photo', !selected.photo)}
+                             >
+                               {selected.photo ? <><CheckCircle size={14}/> Image Uploaded</> : <><Camera size={14}/> Upload Photo</>}
+                             </button>
+                           </div>
+                         )}
+
+                         {/* PRICE CORRECTION LOGIC */}
+                         {selected.reason === 'Price Correction' && (
+                           <div>
+                             <label className="block text-xs font-bold text-gray-600 mb-1">Correct Unit Price</label>
+                             <div className="flex items-center">
+                               <span className="bg-gray-100 border border-r-0 rounded-l p-2 text-sm text-gray-500">$</span>
+                               <input 
+                                  type="number" 
+                                  className="w-full border p-2 rounded-r text-sm"
+                                  placeholder="e.g. 80.00"
+                                  value={selected.correctPrice || ''}
+                                  onChange={(e) => handleLineChange(line.sku, 'correctPrice', e.target.value)}
+                               />
+                             </div>
+                           </div>
+                         )}
+
+                         {/* EXCESS LOGIC */}
+                         {selected.reason === 'Excess' && (
+                           <div className="flex items-center gap-2 h-full pt-4">
+                             <input 
+                              type="checkbox" 
+                              id={`accept-${line.sku}`}
+                              className="w-4 h-4 text-red-600"
+                              checked={selected.excessAccept || false}
+                              onChange={(e) => handleLineChange(line.sku, 'excessAccept', e.target.checked)}
+                             />
+                             <label htmlFor={`accept-${line.sku}`} className="text-sm text-gray-700">Accept and Bill Me?</label>
+                           </div>
+                         )}
+                       </div>
+                     )}
+                   </div>
+                 );
+               })}
+             </div>
+
+             <div className="mt-8 flex justify-end gap-3">
+               <button onClick={() => setStep(1)} className="px-4 py-2 text-gray-600 hover:text-gray-800">Back</button>
+               <button 
+                onClick={() => setStep(3)}
+                disabled={Object.keys(selectedLines).length === 0}
+                className="bg-red-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+               >
+                 Review Summary
+               </button>
+             </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="max-w-2xl mx-auto">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6 text-center">
+              <h3 className="text-green-800 font-bold text-lg mb-1">Ready to Submit</h3>
+              <p className="text-green-700 text-sm">Please confirm details below. A notification will be sent to the Operations Team.</p>
+            </div>
+
+            <div className="bg-white border rounded-lg divide-y mb-6">
+               <div className="p-3 flex justify-between text-sm">
+                 <span className="text-gray-500">Customer</span>
+                 <span className="font-medium">{user.name} ({user.customerCode})</span>
+               </div>
+               <div className="p-3 flex justify-between text-sm">
+                 <span className="text-gray-500">Invoice</span>
+                 <span className="font-medium">{invoiceNum}</span>
+               </div>
+               <div className="p-3 flex justify-between text-sm">
+                 <span className="text-gray-500">Total Claim Value</span>
+                 <span className="font-bold text-red-600">${calculateTotal()}</span>
+               </div>
+            </div>
+
+            <h4 className="font-bold text-sm text-gray-700 mb-2">Line Items:</h4>
+            <div className="space-y-2 mb-8">
+              {Object.keys(selectedLines).map(sku => (
+                 selectedLines[sku].reason ? (
+                  <div key={sku} className="text-sm bg-gray-50 p-2 rounded flex justify-between">
+                    <span>{selectedLines[sku].reason} - {sku}</span>
+                    <span className="font-medium">Qty: {selectedLines[sku].qty || '-'}</span>
+                  </div>
+                 ) : null
+              ))}
+            </div>
+
+            <div className="flex justify-center gap-4">
+              <button onClick={() => setStep(2)} className="px-6 py-2 border rounded-lg text-gray-600 hover:bg-gray-50">Edit</button>
+              <button onClick={handleSubmit} className="px-8 py-2 bg-gray-900 text-white rounded-lg font-bold hover:bg-black shadow-lg">Confirm & Submit</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const TrackRequestsView = ({ requests }) => (
+  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+      <h2 className="text-xl font-bold text-gray-800">My Requests</h2>
+      <div className="relative">
+        <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+        <input type="text" placeholder="Search CN or Invoice..." className="pl-10 pr-4 py-2 border rounded-lg text-sm w-64" />
+      </div>
+    </div>
+    
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-sm text-gray-600">
+        <thead className="bg-gray-50 text-gray-700 uppercase font-semibold text-xs">
+          <tr>
+            <th className="px-6 py-4">Request ID</th>
+            <th className="px-6 py-4">Date</th>
+            <th className="px-6 py-4">Invoice Ref</th>
+            <th className="px-6 py-4">Reason</th>
+            <th className="px-6 py-4">Status</th>
+            <th className="px-6 py-4">Amount</th>
+            <th className="px-6 py-4">NB Comments</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {requests.map((req) => (
+            <tr key={req.id} className="hover:bg-gray-50 transition">
+              <td className="px-6 py-4 font-medium text-blue-600">{req.id}</td>
+              <td className="px-6 py-4">{req.date}</td>
+              <td className="px-6 py-4">{req.invoice}</td>
+              <td className="px-6 py-4">{req.reason}</td>
+              <td className="px-6 py-4">
+                <StatusBadge status={req.status} />
+              </td>
+              <td className="px-6 py-4 font-medium">${parseFloat(req.amount).toFixed(2)}</td>
+              <td className="px-6 py-4 text-xs italic text-gray-500 max-w-xs truncate">
+                {req.publicComments}
+                {/* Note: req.internalComments is intentionally NOT rendered here */}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+);
+
+const PostedCNView = () => (
+  <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+    <div className="p-6 border-b border-gray-100">
+      <h2 className="text-xl font-bold text-gray-800">Posted Credit Notes</h2>
+      <p className="text-sm text-gray-500 mt-1">Download official PDF copies and line-level Excel details.</p>
+    </div>
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-sm text-gray-600">
+        <thead className="bg-gray-50 text-gray-700 uppercase font-semibold text-xs">
+          <tr>
+            <th className="px-6 py-4">CN Number</th>
+            <th className="px-6 py-4">Date Posted</th>
+            <th className="px-6 py-4">Orig. Invoice</th>
+            <th className="px-6 py-4 text-right">Total Amount</th>
+            <th className="px-6 py-4 text-center">Downloads</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {POSTED_CNS.map((cn) => (
+            <tr key={cn.cnNumber} className="hover:bg-gray-50 transition">
+              <td className="px-6 py-4 font-bold text-gray-800">{cn.cnNumber}</td>
+              <td className="px-6 py-4">{cn.datePosted}</td>
+              <td className="px-6 py-4">{cn.originalInvoice}</td>
+              <td className="px-6 py-4 text-right font-medium text-green-700">${cn.totalAmount.toFixed(2)}</td>
+              <td className="px-6 py-4">
+                <div className="flex justify-center gap-2">
+                  <button className="flex items-center gap-1 bg-red-50 text-red-700 px-3 py-1 rounded border border-red-100 hover:bg-red-100 text-xs font-bold transition">
+                    <FileText size={14} /> PDF
+                  </button>
+                  <button className="flex items-center gap-1 bg-green-50 text-green-700 px-3 py-1 rounded border border-green-100 hover:bg-green-100 text-xs font-bold transition">
+                    <Download size={14} /> XLSX
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+);
+
+const StatusBadge = ({ status }) => {
+  const styles = {
+    'New': 'bg-blue-100 text-blue-800',
+    'Ops Review': 'bg-yellow-100 text-yellow-800',
+    'Finance Review': 'bg-orange-100 text-orange-800',
+    'Posted': 'bg-green-100 text-green-800',
+    'Rejected': 'bg-red-100 text-red-800',
+    'Returned': 'bg-purple-100 text-purple-800',
+  };
+  return (
+    <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${styles[status] || 'bg-gray-100 text-gray-800'}`}>
+      {status}
+    </span>
+  );
+};
